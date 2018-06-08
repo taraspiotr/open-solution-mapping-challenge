@@ -264,13 +264,20 @@ def label_multiclass_image(mask):
 
 def erode_image(mask, selem_size):
     selem = rectangle(selem_size, selem_size)
-    eroded_image = binary_erosion(mask, selem=selem)
-    return add_dropped_objects(mask, eroded_image)
+    eroded_image = []
+    for layer in mask:
+        eroded_layer = binary_erosion(layer, selem=selem)
+        eroded_image.append(add_dropped_objects(layer, eroded_layer))
+    return np.stack(eroded_image)
 
 
 def dilate_image(mask, selem_size):
     selem = rectangle(selem_size, selem_size)
-    return binary_dilation(mask, selem=selem)
+    dilated_image = []
+    for layer in mask:
+        dilated_layer = binary_erosion(layer, selem=selem)
+        dilated_image.append(dilated_layer)
+    return np.stack(dilated_image)
 
 
 def dilate_labeled_image(mask, selem_size):
