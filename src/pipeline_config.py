@@ -3,7 +3,7 @@ import os
 from attrdict import AttrDict
 from deepsense import neptune
 
-from utils import read_params
+from .utils import read_params
 
 ctx = neptune.Context()
 params = read_params(ctx, fallback_file='neptune.yaml')
@@ -14,6 +14,7 @@ Y_COLUMNS = ['file_path_mask_eroded_0_dilated_0']
 Y_COLUMNS_SCORING = ['ImageId']
 CATEGORY_IDS = [None, 100]
 CATEGORY_LAYERS = [1, 19]
+SEED = 1234
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 # MEAN = [0.0, 0.0, 0.0]
