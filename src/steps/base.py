@@ -1,6 +1,7 @@
 import os
 import pprint
 import shutil
+from collections import OrderedDict
 
 import numpy as np
 from scipy import sparse
@@ -176,7 +177,7 @@ class Step:
 
     def adapt(self, step_inputs):
         logger.info('step {} adapting inputs'.format(self.name))
-        adapted_steps = {}
+        adapted_steps = OrderedDict([])
         for adapted_name, mapping in self.adapter.items():
             if isinstance(mapping, str):
                 adapted_steps[adapted_name] = step_inputs[mapping]

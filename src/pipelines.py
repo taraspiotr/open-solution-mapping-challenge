@@ -1,5 +1,6 @@
 from functools import partial
 import os
+from collections import OrderedDict
 
 from . import loaders
 from .steps.base import Step, Dummy
@@ -255,9 +256,9 @@ def mask_postprocessing(loader, model, config, save_output=False):
                            transformer=post.ResizerStream() if config.execution.stream_mode else post.Resizer(),
                            input_data=['input'],
                            input_steps=[model],
-                           adapter={'images': ([(model.name, 'multichannel_map_prediction')]),
-                                    'target_sizes': ([('input', 'target_sizes')]),
-                                    },
+                           adapter=OrderedDict([('images', ([(model.name, 'multichannel_map_prediction')])),
+                                                ('target_sizes', ([('input', 'target_sizes')])),
+                                                ]),
                            cache_dirpath=config.env.cache_dirpath,
                            save_output=save_output)
 
@@ -293,9 +294,9 @@ def mask_postprocessing(loader, model, config, save_output=False):
     score_builder = Step(name='score_builder',
                          transformer=post.ScoreBuilder(),
                          input_steps=[mask_dilation, mask_resize],
-                         adapter={'images': ([(mask_dilation.name, 'dilated_images')]),
-                                  'probabilities': ([(mask_resize.name, 'resized_images')]),
-                                  },
+                         adapter=OrderedDict([('images', ([(mask_dilation.name, 'dilated_images')])),
+                                  ('probabilities', ([(mask_resize.name, 'resized_images')])),
+                                  ]),
                          cache_dirpath=config.env.cache_dirpath,
                          save_output=save_output)
 

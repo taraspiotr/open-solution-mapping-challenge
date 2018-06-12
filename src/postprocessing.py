@@ -4,76 +4,91 @@ from skimage.morphology import binary_dilation, binary_erosion, dilation, rectan
 from tqdm import tqdm
 from pydensecrf.densecrf import DenseCRF2D
 from pydensecrf.utils import unary_from_softmax
+from collections import Iterable
+from functools import partial
 
 from .steps.base import BaseTransformer
 from .utils import categorize_image, denormalize_img, add_dropped_objects, label
 from .pipeline_config import MEAN, STD
 
 
-class MulticlassLabeler(BaseTransformer):
-    def transform(self, images):
-        labeled_images = []
-        for i, image in tqdm(enumerate(images)):
-            labeled_image = label_multiclass_image(image)
-            labeled_images.append(labeled_image)
-        return {'labeled_images': labeled_images}
+class SingleOutputApplyTransformer(BaseTransformer):
+    def __init__(self):
+        self.function = None
+        self.output_name = None
+
+    def transform(self, **kwargs):
+        self.check_input(**kwargs)
+
+        output_list = []
+        for func_args in tqdm(zip(*kwargs.values())):
+            output_list.append(self.function(*func_args))
+        return {self.output_name: output_list}
+
+    @staticmethod
+    def check_input(**kwargs):
+        if len(kwargs) == 0:
+            raise Exception('Input must not be empty')
+
+        for arg in kwargs.values():
+            if not isinstance(arg, Iterable):
+                raise Exception('All inputs must be iterable')
 
 
-class Resizer(BaseTransformer):
-    def transform(self, images, target_sizes):
-        resized_images = []
-        for image, target_size in tqdm(zip(images, target_sizes)):
-            n_channels = image.shape[0]
-            resized_image = resize(image, (n_channels,) + target_size, mode='constant')
-            resized_images.append(resized_image)
-        return {'resized_images': resized_images}
+class MulticlassLabeler(SingleOutputApplyTransformer):
+    def __init__(self):
+        super().__init__()
+        self.function = label_multiclass_image
+        self.output_name = 'labeled_images'
 
 
-class CategoryMapper(BaseTransformer):
-    def transform(self, images):
-        categorized_images = []
-        for image in tqdm(images):
-            categorized_images.append(categorize_image(image))
-        return {'categorized_images': categorized_images}
+class Resizer(SingleOutputApplyTransformer):
+    def __init__(self):
+        super().__init__()
+        self.function = resize_image
+        self.output_name = 'resized_images'
 
 
-class MaskEroder(BaseTransformer):
+class CategoryMapper(SingleOutputApplyTransformer):
+    def __init__(self):
+        super().__init__()
+        self.function = categorize_image
+        self.output_name = 'categorized_images'
+
+
+class MaskEroder(SingleOutputApplyTransformer):
     def __init__(self, erode_selem_size, **kwargs):
-        self.selem_size = erode_selem_size
-
-    def transform(self, images):
-        if self.selem_size > 0:
-            eroded_images = []
-            for image in tqdm(images):
-                eroded_images.append(erode_image(image, self.selem_size))
-        else:
-            eroded_images = images
-        return {'eroded_images': eroded_images}
+        super().__init__()
+        self.output_name = 'eroded_images'
+        self.function = partial(erode_image, selem_size=erode_selem_size)
 
 
-class MaskDilator(BaseTransformer):
+class MaskDilator(SingleOutputApplyTransformer):
     def __init__(self, dilate_selem_size, **kwargs):
-        self.selem_size = dilate_selem_size
-
-    def transform(self, images):
-        dilated_images = []
-        for image in tqdm(images):
-            dilated_images.append(dilate_image(image, self.selem_size))
-        return {'categorized_images': dilated_images}
+        super().__init__()
+        self.output_name = 'dilated_images'
+        self.function = partial(dilate_image, selem_size=dilate_selem_size)
 
 
-class LabeledMaskDilator(BaseTransformer):
+class LabeledMaskDilator(SingleOutputApplyTransformer):
     def __init__(self, dilate_selem_size, **kwargs):
-        self.selem_size = dilate_selem_size
+        super().__init__()
+        self.output_name = 'dilated_images'
+        self.function = partial(dilate_labeled_image, selem_size=dilate_selem_size)
 
-    def transform(self, images):
-        if self.selem_size > 0:
-            dilated_images = []
-            for image in tqdm(images):
-                dilated_images.append(dilate_labeled_image(image, self.selem_size))
-        else:
-            dilated_images = images
-        return {'dilated_images': dilated_images}
+
+class PredictionCrop(SingleOutputApplyTransformer):
+    def __init__(self, h_crop, w_crop):
+        super().__init__()
+        self.output_name = 'cropped_images'
+        self.function = partial(crop_image_center_per_class, size=(h_crop, w_crop))
+
+
+class ScoreBuilder(SingleOutputApplyTransformer):
+    def __init__(self):
+        super().__init__()
+        self.output_name = 'images_with_scores'
+        self.function = build_score
 
 
 class DenseCRF(BaseTransformer):
@@ -106,27 +121,6 @@ class DenseCRF(BaseTransformer):
             if batch_id == steps:
                 break
         return original_images
-
-
-class PredictionCrop(BaseTransformer):
-    def __init__(self, h_crop, w_crop):
-        self.h_crop = h_crop
-        self.w_crop = w_crop
-
-    def transform(self, images):
-        cropped_per_class_predictions = []
-        for image in tqdm(images):
-            cropped_per_class_prediction = crop_image_center_per_class(image, (self.h_crop, self.w_crop))
-            cropped_per_class_predictions.append(cropped_per_class_prediction)
-        return {'cropped_images': cropped_per_class_predictions}
-
-
-class ScoreBuilder(BaseTransformer):
-    def transform(self, images, probabilities):
-        images_with_scores = []
-        for image, image_probabilities in tqdm(zip(images, probabilities)):
-            images_with_scores.append((image, build_score(image, image_probabilities)))
-        return {'images_with_scores': images_with_scores}
 
 
 class MulticlassLabelerStream(BaseTransformer):
@@ -254,6 +248,12 @@ class ScoreBuilderStream(BaseTransformer):
             yield (image, build_score(image, image_probabilities))
 
 
+def resize_image(image, target_size):
+    n_channels = image.shape[0]
+    resized_image = resize(image, (n_channels,) + target_size, mode='constant')
+    return resized_image
+
+
 def label_multiclass_image(mask):
     labeled_channels = []
     for label_nr in range(0, mask.max() + 1):
@@ -263,17 +263,23 @@ def label_multiclass_image(mask):
 
 
 def erode_image(mask, selem_size):
+    if not selem_size > 0:
+        return mask
     selem = rectangle(selem_size, selem_size)
     eroded_image = binary_erosion(mask, selem=selem)
     return add_dropped_objects(mask, eroded_image)
 
 
 def dilate_image(mask, selem_size):
+    if not selem_size > 0:
+        return mask
     selem = rectangle(selem_size, selem_size)
     return binary_dilation(mask, selem=selem)
 
 
 def dilate_labeled_image(mask, selem_size):
+    if not selem_size > 0:
+        return mask
     selem = rectangle(selem_size, selem_size)
     dilated_image = []
     for category_mask in mask:
@@ -310,7 +316,7 @@ def build_score(image, probabilities):
             masked_instance = np.ma.masked_array(category_probabilities, mask=category_instances != label_nr)
             score.append(masked_instance.mean() * np.sqrt(np.count_nonzero(category_instances == label_nr)))
         total_score.append(score)
-    return total_score
+    return image, total_score
 
 
 def crop_image_center_per_class(image, size):
